@@ -6,6 +6,7 @@ all: lint test
 
 test: $(GO_SRC)
 	go test -v -race -cover -coverpkg ./... -coverprofile=coverage.txt -covermode=atomic ./...
+	cd ./tests && go test -v -race -cover -coverpkg "gojini.dev/signal" -coverprofile=../coverage.txt -covermode=atomic ./...
 
 lint: ./.golangcilint.yaml
 	./bin/golangci-lint --version || curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh -s v1.43.0
