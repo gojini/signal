@@ -11,8 +11,8 @@ import (
 )
 
 func ExampleRouter() {
-	ctx := context.Background()
-	router := signal.New(ctx)
+	ctx, cancel := context.WithCancel(context.Background())
+	router, startF, stopF := signal.New(ctx, cancel)
 	waiter := sync.WaitGroup{}
 	waiter.Add(1)
 
@@ -22,7 +22,7 @@ func ExampleRouter() {
 	})
 
 	go func() {
-		if e := router.Start(); e != nil {
+		if e := startF(); e != nil {
 			panic(e)
 		}
 	}()
@@ -34,7 +34,7 @@ func ExampleRouter() {
 	waiter.Wait()
 
 	// Stop the router
-	router.Stop(nil)
+	stopF(nil)
 
 	// Output: signal called: user defined signal 1
 }

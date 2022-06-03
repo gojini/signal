@@ -39,9 +39,9 @@ func TestSignals(t *testing.T) {
 	t.Parallel()
 
 	assert := assert.New(t)
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
-	router := signal.New(ctx)
+	router, startF, stopF := signal.New(ctx, cancel)
 
 	assert.NotNil(router)
 	assert.False(router.IsIgnored(syscall.SIGINT))
@@ -61,12 +61,12 @@ func TestSignals(t *testing.T) {
 	assert.Equal(0, len(handler.s))
 
 	go func() {
-		if e := router.Start(); e != nil {
+		if e := startF(); e != nil {
 			panic(e)
 		}
 	}()
 
-	defer router.Stop(nil)
+	defer stopF(nil)
 
 	// Fire a signal
 	router.Fire(syscall.SIGINT)

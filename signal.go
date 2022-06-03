@@ -11,77 +11,82 @@ import (
 // with a signal router. It is invoked whenever as signal is fired.
 type Handler func(os.Signal)
 
+// StartFunc that will start the signal router, this method will not return
+// until the router is stopped.
+type StartFunc func() error
+
+// StopFunc that will stop the signal router and clean up any resources used.
+type StopFunc func(error)
+
 // Router routes signals to registered handler. Router keeps track of signals
 // that needs to be ignored or handled. If a handler is set for a signal it will
 // invoke the handler when a signal is received.
-type Router interface {
-	// Handle registers a signal handler.
-	Handle(sig os.Signal, h Handler)
-
-	// Reset resets a signal handler. This signal will not be forwarded once
-	// reset.
-	Reset(sig os.Signal)
-
-	// Ignore ignores a signal.
-	Ignore(sig os.Signal)
-
-	// IsHandled checks if a signal being routed to a handler.
-	IsHandled(sig os.Signal) bool
-
-	// IsIgnored checks if a signal is being ignored.
-	IsIgnored(sig os.Signal) bool
-
-	// Fire a signal.
-	Fire(sig os.Signal)
-
-	// Start the signal router. This method is a block until the router is
-	// stopped. It is usual to call this method in a separate go routine.
-	Start() error
-
-	// Stop the router. Stops the router and releases the resources.
-	Stop(err error)
-}
-
-type router struct {
+type Router struct {
 	signalCh   chan os.Signal
 	signals    map[os.Signal]Handler
 	ignSignals map[os.Signal]struct{}
-	ctx        context.Context
-	cancelFunc context.CancelFunc
 	lock       *sync.RWMutex
 }
 
-// New returns a signal router.
-func New(ctx context.Context) Router {
+// New returns a signal router, a start handler and stop handler for the router.
+func New(ctx context.Context, cancel context.CancelFunc) (*Router, StartFunc, StopFunc) {
 	channelSize := 10
-	fctx, fcancel := context.WithCancel(ctx)
+	signalCh := make(chan os.Signal, channelSize)
+	signals := make(map[os.Signal]Handler)
+	lock := &sync.RWMutex{}
 
-	return &router{
-		signalCh:   make(chan os.Signal, channelSize),
-		signals:    make(map[os.Signal]Handler),
-		ignSignals: make(map[os.Signal]struct{}),
-		ctx:        fctx,
-		cancelFunc: fcancel,
-		lock:       &sync.RWMutex{},
+	startF := func() error {
+		// This go routine dies with the server
+		for {
+			select {
+			case <-ctx.Done():
+				// Context got cancelled, exit
+				return nil
+			case sig := <-signalCh:
+				func() {
+					lock.RLock()
+					defer lock.RUnlock()
+
+					if h, ok := signals[sig]; ok {
+						h(sig)
+					}
+				}()
+			}
+		}
 	}
+
+	stopF := func(error) {
+		close(signalCh)
+		cancel()
+	}
+
+	router := &Router{
+		signalCh:   signalCh,
+		signals:    signals,
+		ignSignals: make(map[os.Signal]struct{}),
+		lock:       lock,
+	}
+
+	return router, startF, stopF
 }
 
-func (s *router) Handle(sig os.Signal, h Handler) {
+func (s *Router) Handle(sig os.Signal, h Handler) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
 	s.signals[sig] = h
 	signal.Notify(s.signalCh, sig)
 	delete(s.ignSignals, sig)
 }
 
-func (s *router) Reset(sig os.Signal) {
+func (s *Router) Reset(sig os.Signal) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	delete(s.signals, sig)
 	signal.Reset(sig)
 }
 
-func (s *router) Ignore(sig os.Signal) {
+func (s *Router) Ignore(sig os.Signal) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 	delete(s.signals, sig)
@@ -90,7 +95,7 @@ func (s *router) Ignore(sig os.Signal) {
 	s.ignSignals[sig] = struct{}{}
 }
 
-func (s *router) IsHandled(sig os.Signal) bool {
+func (s *Router) IsHandled(sig os.Signal) bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	_, ok := s.signals[sig]
@@ -98,7 +103,7 @@ func (s *router) IsHandled(sig os.Signal) bool {
 	return ok
 }
 
-func (s *router) IsIgnored(sig os.Signal) bool {
+func (s *Router) IsIgnored(sig os.Signal) bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
 	_, ok := s.ignSignals[sig]
@@ -106,34 +111,7 @@ func (s *router) IsIgnored(sig os.Signal) bool {
 	return ok
 }
 
-// Start starts the signal router and listens for registered signals.
-func (s *router) Start() error {
-	// This go routine dies with the server
-	for {
-		select {
-		case <-s.ctx.Done():
-			// Context got cancelled, exit
-			return nil
-		case sig := <-s.signalCh:
-			func() {
-				s.lock.RLock()
-				defer s.lock.RUnlock()
-
-				if h, ok := s.signals[sig]; ok {
-					h(sig)
-				}
-			}()
-		}
-	}
-}
-
-// Stop stops the signal router.
-func (s *router) Stop(err error) {
-	close(s.signalCh)
-	s.cancelFunc()
-}
-
 // Fire a signal.
-func (s *router) Fire(sig os.Signal) {
+func (s *Router) Fire(sig os.Signal) {
 	s.signalCh <- sig
 }
