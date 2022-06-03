@@ -9,5 +9,5 @@ test: $(GO_SRC)
 	cd ./tests && go test -v -race -cover -coverpkg "gojini.dev/signal" -coverprofile=../coverage.txt -covermode=atomic ./...
 
 lint: ./.golangcilint.yaml
-	./bin/golangci-lint --version || curl -sfL https://install.goreleaser.com/github.com/golangci/golangci-lint.sh | sh -s v1.43.0
+	./bin/golangci-lint --version || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b ./bin v1.46.2
 	./bin/golangci-lint --config ./.golangcilint.yaml run ./...
