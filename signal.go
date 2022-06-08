@@ -70,6 +70,8 @@ func New(ctx context.Context, cancel context.CancelFunc) (*Router, StartFunc, St
 	return router, startF, stopF
 }
 
+// Handle associates signal sig and Handler h through a map entry in s.signals.
+// Makes sure signal is not being ignored.
 func (s *Router) Handle(sig os.Signal, h Handler) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -79,6 +81,8 @@ func (s *Router) Handle(sig os.Signal, h Handler) {
 	delete(s.ignSignals, sig)
 }
 
+// Reset disassociates sig from any Handler in s.signals.
+// Then reset signal as to undo all previous Notify calls.
 func (s *Router) Reset(sig os.Signal) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -86,6 +90,8 @@ func (s *Router) Reset(sig os.Signal) {
 	signal.Reset(sig)
 }
 
+// Ignore adds sig to s.ignSignals, effectively ignoring it.
+// Additionally, disassociates sig from any Handler in s.signals.
 func (s *Router) Ignore(sig os.Signal) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -95,6 +101,7 @@ func (s *Router) Ignore(sig os.Signal) {
 	s.ignSignals[sig] = struct{}{}
 }
 
+// IsHandled returns whether or not sig has an associated handler.
 func (s *Router) IsHandled(sig os.Signal) bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -103,6 +110,7 @@ func (s *Router) IsHandled(sig os.Signal) bool {
 	return ok
 }
 
+// IsIgnored returns whether or not sig is being ignored.
 func (s *Router) IsIgnored(sig os.Signal) bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
